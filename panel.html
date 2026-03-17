@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>Panel</title>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.7/dist/gsap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.7/dist/MotionPathPlugin.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/elkjs@0.9.3/lib/elk.bundled.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0c;--surface:#131318;--border:#252530;--muted:#555568;
+  --text:#e0e0ea;--blue:#4a9eff;--red:#ff4455;--green:#3ecf8e;
+  --purple:#c084fc;--orange:#f0a000;--yellow:#f97316;
+  --mono:"Cascadia Code","Fira Code","Consolas",monospace;
+  --fs:11px;
+}
+html,body{background:var(--bg);color:var(--text);font-family:var(--mono);
+  font-size:var(--fs);width:100vw;height:100vh;overflow:hidden;color-scheme:dark}
+
+#canvas{position:absolute;inset:0;overflow:auto;padding-bottom:150px;
+  background:radial-gradient(circle,#1a1a24 1px,transparent 1px),var(--bg);
+  background-size:20px 20px}
+
+svg#wires{position:absolute;top:0;left:0;pointer-events:none;overflow:visible}
+svg .wire{pointer-events:none}
+
+.ic{position:absolute;background:var(--surface);border:2px solid var(--border);
+  border-radius:4px;display:flex;flex-direction:column;min-width:160px;
+  touch-action:none;cursor:grab;z-index:2;transition:border-color .3s}
+.ic.active{border-color:var(--blue)}
+.ic.err{border-color:var(--red)}
+.ic-head{padding:4px 8px;background:#1a1a22;border-bottom:1px solid var(--border);
+  font-size:9px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;
+  display:flex;align-items:center;gap:6px;user-select:none}
+.ic-head .ic-icon{font-size:11px}
+.ic-head .ic-name{flex:1}
+.ic-head .ic-ts{font-size:7px;color:var(--muted)}
+.ic-pins{display:flex;justify-content:space-between;padding:0 2px}
+.ic-pins-left,.ic-pins-right{display:flex;flex-direction:column;gap:2px;padding:2px 0}
+.pin{font-size:7px;color:var(--muted);padding:1px 4px;display:flex;align-items:center;gap:3px;
+  white-space:nowrap}
+.pin .dot{width:5px;height:5px;border-radius:50%;background:var(--border);flex-shrink:0;
+  transition:background .2s}
+.pin .dot.on{background:var(--green)}
+.pin .dot.err{background:var(--red)}
+.ic-body{padding:4px;display:flex;flex-direction:column;gap:3px;font-size:8px}
+
+.ic-imgs{display:flex;gap:2px;min-height:0}
+.ic-img-slot{flex:1;position:relative;background:var(--bg);border:1px solid var(--border);
+  border-radius:2px;overflow:hidden;min-height:40px;display:flex;align-items:center;
+  justify-content:center;cursor:pointer}
+.ic-img-slot img{max-width:100%;max-height:100%;object-fit:contain;display:none}
+.ic-img-slot .tag{position:absolute;top:1px;left:3px;font-size:6px;color:var(--muted);
+  text-transform:uppercase;pointer-events:none}
+.ic-img-slot .ph{color:var(--border);font-size:7px}
+
+.ic-pane{padding:2px 4px;font-size:8px;line-height:1.4;white-space:pre-wrap;
+  word-break:break-word;border-top:1px solid var(--border);max-height:120px;overflow-y:auto}
+.ic-pane.sys{color:#a78bfa;background:rgba(167,139,250,0.04)}
+.ic-pane.usr{color:#60a5fa;background:rgba(96,165,250,0.04)}
+.ic-pane.reply{color:#34d399;background:rgba(52,211,153,0.04)}
+.ic-pane-label{font-size:6px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;
+  padding:1px 4px}
+.ic-pane .ph{color:var(--border)}
+
+.fr-badge{display:inline-block;font-size:6px;padding:0 4px;border-radius:2px;
+  margin-left:4px;font-weight:700}
+.fr-badge.stop{background:rgba(52,211,153,0.2);color:var(--green)}
+.fr-badge.length{background:rgba(255,68,85,0.2);color:var(--red)}
+.fr-badge.error{background:rgba(255,68,85,0.3);color:var(--red)}
+.fr-badge.unknown{background:rgba(136,136,160,0.2);color:#8888a0}
+
+.group-box{position:absolute;border:1.5px dashed var(--border);border-radius:8px;
+  background:rgba(19,19,24,0.5);z-index:1;pointer-events:none}
+.group-label{position:absolute;top:-10px;left:8px;font-size:7px;font-weight:700;
+  color:var(--muted);text-transform:uppercase;letter-spacing:.06em;
+  background:var(--bg);padding:0 4px}
+
+#trace{position:fixed;bottom:0;left:0;right:0;height:140px;background:var(--surface);
+  border-top:2px solid var(--border);z-index:10;display:flex;flex-direction:column}
+#trace-head{display:flex;align-items:center;gap:8px;padding:3px 8px;
+  background:#1a1a22;border-bottom:1px solid var(--border);font-size:9px;
+  font-weight:700;color:var(--muted);user-select:none;flex-shrink:0}
+#trace-head .dot{width:7px;height:7px;border-radius:50%;background:var(--red);
+  transition:background .3s}
+#trace-head .dot.live{background:var(--green)}
+#trace-body{flex:1;overflow-y:auto;overflow-x:hidden}
+.tr{display:flex;gap:6px;padding:1px 8px;border-bottom:1px solid #111118;font-size:8px;
+  align-items:baseline;cursor:pointer;min-height:16px}
+.tr:hover{background:rgba(74,158,255,0.06)}
+.tr.hl{background:rgba(74,158,255,0.12)}
+.tr.err{color:var(--red)}
+.tr-t{color:var(--muted);flex-shrink:0;width:58px}
+.tr-e{color:var(--blue);flex-shrink:0;width:100px}
+.tr-a{color:var(--green);flex-shrink:0;width:55px}
+.tr-l{color:#b0b0c0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tr-f{color:#666680;font-size:7px;flex-basis:100%;padding-left:58px;white-space:pre-wrap;
+  word-break:break-all}
+
+#replay-bar{display:none;align-items:center;gap:6px;padding:2px 8px;
+  background:#0e0e12;border-bottom:1px solid var(--border);flex-shrink:0}
+#replay-bar button{background:var(--surface);border:1px solid var(--border);color:var(--text);
+  font-family:var(--mono);font-size:9px;padding:2px 8px;border-radius:3px;cursor:pointer}
+#replay-bar button:hover{border-color:var(--blue)}
+#replay-bar input[type=range]{flex:1;accent-color:var(--blue)}
+#replay-bar .speed-label{font-size:8px;color:var(--muted);min-width:40px}
+
+#img-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.88);
+  display:none;z-index:1000;align-items:center;justify-content:center;cursor:zoom-out}
+#img-overlay img{max-width:95vw;max-height:95vh;object-fit:contain}
+
+.wire-label{font-size:7px;fill:var(--muted);pointer-events:none}
+
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+</style>
+</head>
+<body>
+<div id="canvas">
+  <svg id="wires" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="ah" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+        <polygon points="0 0,7 2.5,0 5" fill="#555568"/></marker>
+      <marker id="ah-b" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+        <polygon points="0 0,7 2.5,0 5" fill="#4a9eff"/></marker>
+      <marker id="ah-r" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+        <polygon points="0 0,7 2.5,0 5" fill="#ff4455"/></marker>
+      <filter id="glow"><feGaussianBlur stdDeviation="2" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    </defs>
+  </svg>
+</div>
+
+<div id="trace">
+  <div id="trace-head">
+    <span class="dot" id="cdot"></span>
+    <span>SIGNAL TRACE</span>
+    <span style="flex:1"></span>
+    <span id="entry-count" style="font-size:8px;color:var(--muted)">0 entries</span>
+  </div>
+  <div id="replay-bar">
+    <button id="btn-prev">◀ STEP</button>
+    <button id="btn-play">▶ PLAY</button>
+    <button id="btn-next">STEP ▶</button>
+    <input type="range" id="scrubber" min="0" max="0" value="0"/>
+    <button id="btn-slower">−</button>
+    <span class="speed-label" id="speed-label">1×</span>
+    <button id="btn-faster">+</button>
+  </div>
+  <div id="trace-body"></div>
+</div>
+
+<div id="img-overlay"><img id="img-overlay-img" alt=""/></div>
+
+<script type="module">
+gsap.registerPlugin(MotionPathPlugin);
+const PANEL = location.protocol === 'file:' ? 'http://127.0.0.1:1236' : '';
+const NORM = 1000;
+const COMP_TYPES = {
+  panel: {icon: '📡', color: '#4a9eff', pins: {left: ['brain_in','result_in'], right: ['capture','annotate','vlm','device']}},
+  vlm: {icon: '🤖', color: '#f97316', pins: {left: ['request'], right: ['response']}},
+  win32: {icon: '🖥️', color: '#3ecf8e', pins: {left: ['capture_cmd','device_cmd'], right: ['capture_out','device_out']}},
+  browser: {icon: '🌐', color: '#c084fc', pins: {left: ['annotate_req'], right: ['result']}},
+};
+const BRAIN_COLOR = '#a3e635';
+
+const $canvas = document.getElementById('canvas');
+const $wires = document.getElementById('wires');
+const $traceBody = document.getElementById('trace-body');
+const $cdot = document.getElementById('cdot');
+const $overlay = document.getElementById('img-overlay');
+const $overlayImg = document.getElementById('img-overlay-img');
+const $entryCount = document.getElementById('entry-count');
+const $replayBar = document.getElementById('replay-bar');
+const $scrubber = document.getElementById('scrubber');
+const $speedLabel = document.getElementById('speed-label');
+
+const ics = new Map();
+const edges = new Map();
+const groups = new Map();
+const allEntries = [];
+const agentState = new Map();
+let pendingAnnotations = new Set();
+let isLive = false;
+let pollCursor = {batch: '', line: 0};
+let allBatches = [];
+let elk = null;
+let layoutDirty = false;
+let replayIdx = 0;
+let replayPlaying = false;
+let replaySpeed = 1;
+let replayTimer = null;
+let highlightedRid = '';
+
+try { elk = new ELK(); } catch(e) { console.error('ELK init failed:', e); }
+
+function compType(id) {
+  if (id.startsWith('brain.')) return 'brain';
+  if (id === 'brain') return 'brain';
+  return COMP_TYPES[id] ? id : 'brain';
+}
+
+function compColor(id) {
+  const t = compType(id);
+  if (t === 'brain') return BRAIN_COLOR;
+  return COMP_TYPES[t]?.color || '#888';
+}
+
+function compIcon(id) {
+  const t = compType(id);
+  if (t === 'brain') return '🧠';
+  return COMP_TYPES[t]?.icon || '⬡';
+}
+
+function groupKey(id) {
+  if (id.startsWith('brain.')) return 'brain_group';
+  return null;
+}
+function ensureIC(id) {
+  if (ics.has(id)) return ics.get(id);
+  const color = compColor(id);
+  const icon = compIcon(id);
+  const el = document.createElement('div');
+  el.className = 'ic';
+  el.style.borderColor = color;
+  el.dataset.icId = id;
+
+  const head = document.createElement('div');
+  head.className = 'ic-head';
+  head.innerHTML = `<span class="ic-icon">${icon}</span><span class="ic-name" style="color:${color}">${id}</span><span class="ic-ts"></span>`;
+
+  const pinsRow = document.createElement('div');
+  pinsRow.className = 'ic-pins';
+  const pinsL = document.createElement('div');
+  pinsL.className = 'ic-pins-left';
+  const pinsR = document.createElement('div');
+  pinsR.className = 'ic-pins-right';
+  pinsRow.append(pinsL, pinsR);
+
+  const body = document.createElement('div');
+  body.className = 'ic-body';
+
+  el.append(head, pinsRow, body);
+  $canvas.appendChild(el);
+
+  const ic = {id, el, x: 0, y: 0, w: 180, h: 60, color, pinsL, pinsR, body,
+    tsEl: head.querySelector('.ic-ts'), pins: new Map(), agentData: null};
+  ics.set(id, ic);
+  layoutDirty = true;
+
+  let dragX = 0, dragY = 0;
+  let dragging = false;
+  head.addEventListener('pointerdown', e => {
+    dragging = true;
+    dragX = e.clientX - ic.x;
+    dragY = e.clientY - ic.y;
+    head.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  head.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    ic.x = e.clientX - dragX;
+    ic.y = e.clientY - dragY;
+    el.style.left = ic.x + 'px';
+    el.style.top = ic.y + 'px';
+    rebuildWires();
+    updateGroups();
+  });
+  head.addEventListener('pointerup', () => { dragging = false; });
+
+  el.addEventListener('click', e => {
+    if (e.target.closest('.ic-img-slot')) return;
+    highlightByComponent(id);
+  });
+
+  const gk = groupKey(id);
+  if (gk && !groups.has(gk)) {
+    const gEl = document.createElement('div');
+    gEl.className = 'group-box';
+    const gLabel = document.createElement('div');
+    gLabel.className = 'group-label';
+    gLabel.textContent = 'BRAIN PROCESS';
+    gLabel.style.color = BRAIN_COLOR;
+    gEl.style.borderColor = BRAIN_COLOR + '40';
+    gEl.appendChild(gLabel);
+    $canvas.insertBefore(gEl, $canvas.firstChild);
+    groups.set(gk, {el: gEl, members: new Set()});
+  }
+  if (gk) groups.get(gk).members.add(id);
+
+  return ic;
+}
+
+function ensurePin(icId, side, name) {
+  const ic = ics.get(icId);
+  if (!ic) return;
+  const key = `${side}:${name}`;
+  if (ic.pins.has(key)) return;
+  const container = side === 'left' ? ic.pinsL : ic.pinsR;
+  const pin = document.createElement('div');
+  pin.className = 'pin';
+  const dot = document.createElement('span');
+  dot.className = 'dot';
+  const lbl = document.createElement('span');
+  lbl.textContent = name;
+  if (side === 'left') pin.append(dot, lbl);
+  else pin.append(lbl, dot);
+  container.appendChild(pin);
+  ic.pins.set(key, {el: pin, dot, name, side});
+}
+
+function flashPin(icId, side, name, isErr) {
+  const ic = ics.get(icId);
+  if (!ic) return;
+  const key = `${side}:${name}`;
+  const p = ic.pins.get(key);
+  if (!p) return;
+  p.dot.classList.add(isErr ? 'err' : 'on');
+  setTimeout(() => { p.dot.classList.remove('on', 'err'); }, 800);
+}
+
+function updateGroups() {
+  for (const [, g] of groups) {
+    if (g.members.size === 0) continue;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const mid of g.members) {
+      const m = ics.get(mid);
+      if (!m) continue;
+      minX = Math.min(minX, m.x);
+      minY = Math.min(minY, m.y);
+      maxX = Math.max(maxX, m.x + m.el.offsetWidth);
+      maxY = Math.max(maxY, m.y + m.el.offsetHeight);
+    }
+    const pad = 12;
+    g.el.style.left = (minX - pad) + 'px';
+    g.el.style.top = (minY - pad) + 'px';
+    g.el.style.width = (maxX - minX + pad * 2) + 'px';
+    g.el.style.height = (maxY - minY + pad * 2) + 'px';
+  }
+}
+function ensureAgentBody(ic, agent) {
+  if (ic.agentData) return ic.agentData;
+  const imgs = document.createElement('div');
+  imgs.className = 'ic-imgs';
+  const mkSlot = tag => {
+    const s = document.createElement('div');
+    s.className = 'ic-img-slot';
+    const t = document.createElement('span');
+    t.className = 'tag'; t.textContent = tag;
+    const img = document.createElement('img'); img.alt = '';
+    const ph = document.createElement('span');
+    ph.className = 'ph'; ph.textContent = '—';
+    s.append(t, img, ph);
+    s.addEventListener('click', () => {
+      if (img.src && img.style.display !== 'none') {
+        $overlayImg.src = img.src; $overlay.style.display = 'flex';
+      }
+    });
+    return {el: s, img, ph};
+  };
+  const rawS = mkSlot('RAW');
+  const vlmS = mkSlot('VLM');
+  imgs.append(rawS.el, vlmS.el);
+
+  const mkPane = (cls, label) => {
+    const l = document.createElement('div');
+    l.className = 'ic-pane-label'; l.textContent = label;
+    const p = document.createElement('div');
+    p.className = 'ic-pane ' + cls;
+    p.innerHTML = '<span class="ph">—</span>';
+    return {lbl: l, pane: p};
+  };
+  const sysP = mkPane('sys', 'SYS');
+  const usrP = mkPane('usr', 'USR');
+  const replyP = mkPane('reply', 'REPLY');
+
+  ic.body.append(imgs, sysP.lbl, sysP.pane, usrP.lbl, usrP.pane, replyP.lbl, replyP.pane);
+
+  ic.agentData = {rawImg: rawS.img, rawPh: rawS.ph, vlmImg: vlmS.img, vlmPh: vlmS.ph,
+    pSys: sysP.pane, pUsr: usrP.pane, pReply: replyP.pane};
+  return ic.agentData;
+}
+
+function showImg(imgEl, phEl, src) {
+  imgEl.style.display = 'block'; phEl.style.display = 'none'; imgEl.src = src;
+}
+
+function setPane(el, text) {
+  el.textContent = '';
+  if (text) el.textContent = text;
+  else { const ph = document.createElement('span'); ph.className = 'ph'; ph.textContent = '—'; el.appendChild(ph); }
+}
+
+function setReplyPane(el, text, fr) {
+  setPane(el, text);
+  if (fr) {
+    const b = document.createElement('span');
+    b.className = 'fr-badge ' + (fr === 'stop' ? 'stop' : fr === 'length' ? 'length' : fr === 'error' ? 'error' : 'unknown');
+    b.textContent = fr;
+    el.appendChild(b);
+  }
+}
+
+function updateAgentState(agent, entry) {
+  if (!agentState.has(agent)) agentState.set(agent, {});
+  const st = agentState.get(agent);
+  const flds = entry.fields || {};
+  const event = entry.event || '';
+
+  if (event === 'capture_done' && entry.image) st.raw_image = entry.image;
+  else if (event === 'vlm_forward') {
+    st.system_prompt = flds.system_prompt || st.system_prompt || '';
+    st.user_message = flds.user_message || st.user_message || '';
+    if (entry.image) st.vlm_image = entry.image;
+    st.vlm_reply = ''; st.finish_reason = '';
+  } else if (event === 'vlm_response') {
+    st.vlm_reply = flds.vlm_reply || '';
+    st.finish_reason = entry.finish_reason || '';
+  } else if (event === 'annotate_done' && entry.image) st.vlm_image = entry.image;
+  else if (event === 'capture_failed' || event === 'capture_empty') st.last_error = entry.label || event;
+  else if (event === 'annotate_timeout') st.last_error = entry.label || 'annotate timeout';
+  else if (event === 'vlm_error') {
+    st.last_error = entry.label || 'vlm error';
+    st.vlm_reply = flds.error_body || flds.error_text || '';
+    st.finish_reason = 'error';
+  }
+
+  renderAgentIC(agent, st);
+}
+
+function renderAgentIC(agent, st) {
+  const icId = 'brain.' + agent;
+  const ic = ics.get(icId);
+  if (!ic) return;
+  const ad = ensureAgentBody(ic, agent);
+  ic.tsEl.textContent = new Date().toLocaleTimeString('en-GB', {hour12: false});
+  if (st.raw_image) showImg(ad.rawImg, ad.rawPh, `${PANEL}/images/${st.raw_image}`);
+  if (st.vlm_image) showImg(ad.vlmImg, ad.vlmPh, `${PANEL}/images/${st.vlm_image}`);
+  setPane(ad.pSys, st.system_prompt || '');
+  setPane(ad.pUsr, st.user_message || '');
+  setReplyPane(ad.pReply, st.vlm_reply || '', st.finish_reason || '');
+  if (st.last_error) {
+    ic.el.classList.add('err');
+    setTimeout(() => ic.el.classList.remove('err'), 2000);
+    st.last_error = '';
+  }
+}
+function edgeKey(from, to) { return `${from}→${to}`; }
+
+function ensureEdge(fromId, toId) {
+  const key = edgeKey(fromId, toId);
+  if (!edges.has(key)) {
+    edges.set(key, {from: fromId, to: toId, pathEl: null, labelEl: null, lastEvent: ''});
+    layoutDirty = true;
+  }
+  return edges.get(key);
+}
+
+function rebuildWires() {
+  $wires.querySelectorAll('path.wire, text.wire-label').forEach(p => p.remove());
+  const ns = 'http://www.w3.org/2000/svg';
+  for (const [key, e] of edges) {
+    const fi = ics.get(e.from);
+    const ti = ics.get(e.to);
+    if (!fi || !ti) continue;
+    const fw = fi.el.offsetWidth || fi.w;
+    const fh = fi.el.offsetHeight || fi.h;
+    const tw = ti.el.offsetWidth || ti.w;
+    const th = ti.el.offsetHeight || ti.h;
+    const ax = fi.x + fw;
+    const ay = fi.y + fh / 2;
+    const bx = ti.x;
+    const by = ti.y + th / 2;
+    const mx = (ax + bx) / 2;
+    const path = document.createElementNS(ns, 'path');
+    path.classList.add('wire');
+    path.setAttribute('d', `M ${ax} ${ay} C ${mx} ${ay}, ${mx} ${by}, ${bx} ${by}`);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', '#25253060');
+    path.setAttribute('stroke-width', '1.5');
+    path.setAttribute('marker-end', 'url(#ah)');
+    path.dataset.key = key;
+    $wires.appendChild(path);
+    e.pathEl = path;
+
+    if (e.lastEvent) {
+      const txt = document.createElementNS(ns, 'text');
+      txt.classList.add('wire-label');
+      txt.setAttribute('x', mx);
+      txt.setAttribute('y', (ay + by) / 2 - 4);
+      txt.setAttribute('text-anchor', 'middle');
+      txt.textContent = e.lastEvent;
+      $wires.appendChild(txt);
+      e.labelEl = txt;
+    }
+  }
+  const maxX = Math.max(800, ...Array.from(ics.values()).map(ic => ic.x + (ic.el.offsetWidth || 200) + 40));
+  const maxY = Math.max(600, ...Array.from(ics.values()).map(ic => ic.y + (ic.el.offsetHeight || 100) + 40));
+  $wires.setAttribute('width', maxX);
+  $wires.setAttribute('height', maxY);
+}
+
+function flashEdge(key, isErr, eventLabel) {
+  const e = edges.get(key);
+  if (!e || !e.pathEl) return;
+  e.lastEvent = eventLabel || '';
+  const col = isErr ? '#ff4455' : '#4a9eff';
+  const marker = isErr ? 'url(#ah-r)' : 'url(#ah-b)';
+  gsap.to(e.pathEl, {attr: {stroke: col, 'stroke-width': 3}, duration: 0.15,
+    onComplete: () => gsap.to(e.pathEl, {attr: {stroke: '#25253060', 'stroke-width': 1.5}, duration: 1.2})});
+  e.pathEl.setAttribute('marker-end', marker);
+  setTimeout(() => { if (e.pathEl) e.pathEl.setAttribute('marker-end', 'url(#ah)'); }, 1400);
+
+  if (e.labelEl) {
+    e.labelEl.textContent = eventLabel || '';
+    gsap.fromTo(e.labelEl, {opacity: 1}, {opacity: 0, duration: 2, delay: 1});
+  }
+
+  const fi = ics.get(e.from);
+  const ti = ics.get(e.to);
+  if (fi) { fi.el.classList.add(isErr ? 'err' : 'active');
+    setTimeout(() => fi.el.classList.remove('active', 'err'), 1000); }
+  if (ti) { ti.el.classList.add(isErr ? 'err' : 'active');
+    setTimeout(() => ti.el.classList.remove('active', 'err'), 1000); }
+
+  if (e.pathEl) {
+    const ns = 'http://www.w3.org/2000/svg';
+    const dot = document.createElementNS(ns, 'circle');
+    dot.setAttribute('r', '4');
+    dot.setAttribute('fill', col);
+    dot.setAttribute('opacity', '0.9');
+    dot.setAttribute('filter', 'url(#glow)');
+    $wires.appendChild(dot);
+    gsap.to(dot, {
+      motionPath: {path: e.pathEl, align: e.pathEl, alignOrigin: [0.5, 0.5]},
+      duration: 1.2, ease: 'power1.inOut',
+      onComplete: () => gsap.to(dot, {opacity: 0, duration: 0.5,
+        onComplete: () => { try { $wires.removeChild(dot); } catch(ex) { console.error('dot remove:', ex); } }})
+    });
+  }
+}
+
+async function doLayout() {
+  if (!elk || ics.size === 0) return;
+  const graph = {
+    id: 'root',
+    layoutOptions: {
+      'elk.algorithm': 'layered',
+      'elk.direction': 'RIGHT',
+      'elk.spacing.nodeNode': '50',
+      'elk.layered.spacing.nodeNodeBetweenLayers': '80',
+    },
+    children: [],
+    edges: [],
+  };
+  for (const [id, ic] of ics) {
+    const w = ic.el.offsetWidth || 180;
+    const h = ic.el.offsetHeight || 60;
+    graph.children.push({id, width: w, height: h});
+  }
+  let ei = 0;
+  for (const [, e] of edges) {
+    graph.edges.push({id: `e${ei++}`, sources: [e.from], targets: [e.to]});
+  }
+  try {
+    const result = await elk.layout(graph);
+    const pad = 30;
+    for (const child of result.children || []) {
+      const ic = ics.get(child.id);
+      if (!ic) continue;
+      ic.x = child.x + pad;
+      ic.y = child.y + pad;
+      ic.el.style.left = ic.x + 'px';
+      ic.el.style.top = ic.y + 'px';
+    }
+    rebuildWires();
+    updateGroups();
+  } catch(e) { console.error('ELK layout error:', e); }
+}
+function pinNameForEvent(event, side) {
+  const map = {
+    route: side === 'from' ? 'route_out' : 'route_in',
+    capture_done: side === 'from' ? 'capture_out' : 'capture_in',
+    capture_failed: side === 'from' ? 'capture_out' : 'capture_in',
+    capture_empty: side === 'from' ? 'capture_out' : 'capture_in',
+    annotate_request: side === 'from' ? 'annotate_out' : 'annotate_in',
+    annotate_done: side === 'from' ? 'result_out' : 'result_in',
+    annotate_timeout: side === 'from' ? 'timeout' : 'timeout_in',
+    vlm_forward: side === 'from' ? 'vlm_out' : 'vlm_in',
+    vlm_response: side === 'from' ? 'vlm_out' : 'vlm_in',
+    vlm_error: side === 'from' ? 'vlm_out' : 'vlm_in',
+    action_dispatch: side === 'from' ? 'device_out' : 'device_in',
+    device_done: side === 'from' ? 'device_out' : 'device_in',
+    result_received: side === 'from' ? 'result_out' : 'result_in',
+    sse_connect: side === 'from' ? 'sse' : 'sse',
+    sse_disconnect: side === 'from' ? 'sse' : 'sse',
+  };
+  return map[event] || event;
+}
+
+function eventLabel(d) {
+  let lbl = d.event || '';
+  if (d.duration) lbl += ` ${d.duration}s`;
+  if (d.tokens) lbl += ` ${d.tokens}tok`;
+  if (d.image) lbl += ' 📷';
+  return lbl;
+}
+
+function formatTs(ts) {
+  if (typeof ts !== 'number') return '';
+  const d = new Date(ts * 1000);
+  return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}.${Math.floor(d.getMilliseconds()/10).toString().padStart(2,'0')}`;
+}
+
+function addTraceRow(d, idx) {
+  const row = document.createElement('div');
+  row.className = 'tr' + (d.error ? ' err' : '');
+  row.dataset.idx = idx;
+  row.dataset.rid = d.request_id || '';
+  row.dataset.from = d.from || '';
+  row.dataset.to = d.to || '';
+
+  const ts = document.createElement('span');
+  ts.className = 'tr-t'; ts.textContent = formatTs(d.ts);
+  const ev = document.createElement('span');
+  ev.className = 'tr-e'; ev.textContent = d.event || '';
+  const ag = document.createElement('span');
+  ag.className = 'tr-a'; ag.textContent = d.agent || '';
+  const lbl = document.createElement('span');
+  lbl.className = 'tr-l'; lbl.textContent = eventLabel(d);
+  row.append(ts, ev, ag, lbl);
+
+  if (d.fields && Object.keys(d.fields).length > 0) {
+    const f = document.createElement('div');
+    f.className = 'tr-f'; f.textContent = JSON.stringify(d.fields);
+    row.appendChild(f);
+  }
+
+  row.addEventListener('click', () => highlightByRid(d.request_id || '', idx));
+
+  $traceBody.appendChild(row);
+  $traceBody.scrollTop = $traceBody.scrollHeight;
+  $entryCount.textContent = `${allEntries.length} entries`;
+}
+
+function highlightByRid(rid, clickedIdx) {
+  document.querySelectorAll('.tr.hl').forEach(r => r.classList.remove('hl'));
+  if (!rid) return;
+  highlightedRid = rid;
+  document.querySelectorAll(`.tr[data-rid="${rid}"]`).forEach(r => r.classList.add('hl'));
+  const entry = allEntries[clickedIdx];
+  if (entry) {
+    const from = entry.from || '';
+    const to = entry.to || '';
+    if (from && to && from !== to) {
+      flashEdge(edgeKey(from, to), !!entry.error, eventLabel(entry));
+    }
+  }
+}
+
+function highlightByComponent(compId) {
+  document.querySelectorAll('.tr.hl').forEach(r => r.classList.remove('hl'));
+  document.querySelectorAll('.tr').forEach(r => {
+    if (r.dataset.from === compId || r.dataset.to === compId) r.classList.add('hl');
+  });
+}
+const drawPoly = (ctx, ov, w, h) => {
+  const pts = (ov.points||[]).map(p => [(p[0]||0)*w/NORM, (p[1]||0)*h/NORM]);
+  if (pts.length === 0) return;
+  ctx.save();
+  if (pts.length >= 2) {
+  ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  if (ov.closed) ctx.closePath();
+  if (ov.fill) { ctx.fillStyle = ov.fill; ctx.fill(); }
+  if (ov.stroke) { ctx.strokeStyle = ov.stroke; ctx.lineWidth = ov.stroke_width||1;
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke(); }
+  }
+  if (ov.label && pts.length > 0) {
+    let cx = 0, cy = 0;
+    for (const p of pts) { cx += p[0]; cy += p[1]; }
+    cx /= pts.length; cy /= pts.length;
+    const fs = Math.max(10, Math.min(w, h) * 0.025);
+    ctx.font = `bold ${fs}px system-ui,sans-serif`;
+    const tw = ctx.measureText(ov.label).width;
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    ctx.fillRect(cx - tw/2 - 3, cy - fs/2 - 3, tw + 6, fs + 6);
+    ctx.fillStyle = ov.stroke || '#ffffff';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(ov.label, cx, cy);
+  }
+  ctx.restore();
+};
+
+async function renderAnnotated(imageSrc, overlays) {
+  const img = await new Promise((res, rej) => {
+    const i = new Image(); i.onload = () => res(i);
+    i.onerror = () => rej(new Error(`image load failed: ${imageSrc}`));
+    i.crossOrigin = 'anonymous'; i.src = imageSrc;
+  });
+  const oc = new OffscreenCanvas(img.naturalWidth, img.naturalHeight);
+  const ctx = oc.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  for (const ov of overlays) drawPoly(ctx, ov, img.naturalWidth, img.naturalHeight);
+  const blob = await oc.convertToBlob({type: 'image/png'});
+  const reader = new FileReader();
+  return new Promise((res, rej) => {
+    reader.onload = () => res(reader.result.split(',')[1]);
+    reader.onerror = () => rej(new Error('FileReader failed in renderAnnotated'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function handleAnnotation(rid) {
+  try {
+    const resp = await fetch(`${PANEL}/annotate-request?rid=${rid}`);
+    if (!resp.ok) { console.error(`annotate-request ${rid} failed: ${resp.status}`); pendingAnnotations.delete(rid); return; }
+    const data = await resp.json();
+    const imageSrc = `${PANEL}/images/${data.image}`;
+    const overlays = data.overlays || [];
+    let resultB64;
+    if (overlays.length > 0) {
+      resultB64 = await renderAnnotated(imageSrc, overlays);
+    } else {
+      const imgResp = await fetch(imageSrc);
+      if (!imgResp.ok) throw new Error(`image fetch failed: ${imgResp.status}`);
+      const blob = await imgResp.blob();
+      const reader = new FileReader();
+      resultB64 = await new Promise((res, rej) => {
+        reader.onload = () => res(reader.result.split(',')[1]);
+        reader.onerror = () => rej(new Error('FileReader failed'));
+        reader.readAsDataURL(blob);
+      });
+    }
+    if (!resultB64) throw new Error('annotation produced empty base64');
+    const postResp = await fetch(`${PANEL}/result`, {method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({request_id: rid, image_b64: resultB64})});
+    if (!postResp.ok) console.error(`POST /result ${rid} failed: ${postResp.status}`);
+  } catch(e) { console.error(`handleAnnotation ${rid} error:`, e); }
+  pendingAnnotations.delete(rid);
+}
+function processEntry(d) {
+  const fromComp = d.from || '';
+  const toComp = d.to || '';
+  const event = d.event || '';
+  const agent = d.agent || '';
+  const isErr = !!d.error;
+
+  if (fromComp) {
+    ensureIC(fromComp);
+    ensurePin(fromComp, 'right', pinNameForEvent(event, 'from'));
+    flashPin(fromComp, 'right', pinNameForEvent(event, 'from'), isErr);
+  }
+  if (toComp) {
+    ensureIC(toComp);
+    ensurePin(toComp, 'left', pinNameForEvent(event, 'to'));
+    flashPin(toComp, 'left', pinNameForEvent(event, 'to'), isErr);
+  }
+  if (fromComp && toComp && fromComp !== toComp) {
+    ensureEdge(fromComp, toComp);
+    flashEdge(edgeKey(fromComp, toComp), isErr, eventLabel(d));
+  }
+
+  const idx = allEntries.length;
+  allEntries.push(d);
+  addTraceRow(d, idx);
+  $scrubber.max = allEntries.length - 1;
+  $scrubber.value = allEntries.length - 1;
+
+  if (agent) updateAgentState(agent, d);
+
+  if (event === 'annotate_request' && isLive) {
+    const rid = d.request_id || '';
+    if (rid && !pendingAnnotations.has(rid)) {
+      pendingAnnotations.add(rid);
+      handleAnnotation(rid);
+    }
+  }
+}
+
+async function fetchBatches() {
+  try {
+    const resp = await fetch(`${PANEL}/logs`);
+    if (!resp.ok) { console.error('fetchBatches failed:', resp.status); return; }
+    const data = await resp.json();
+    allBatches = data.batches || [];
+  } catch(e) { console.error('fetchBatches error:', e); }
+}
+
+let _pollBusy = false;
+let _pollAgain = false;
+async function pollLogs() {
+  if (_pollBusy) { _pollAgain = true; return; }
+  _pollBusy = true;
+  try { await _pollLogsInner(); } finally {
+    _pollBusy = false;
+    if (_pollAgain) { _pollAgain = false; pollLogs(); }
+  }
+}
+async function _pollLogsInner() {
+  if (allBatches.length === 0) {
+    await fetchBatches();
+    if (allBatches.length === 0) return;
+    pollCursor.batch = allBatches[0];
+    pollCursor.line = 0;
+  }
+
+  try {
+    const resp = await fetch(`${PANEL}/logs?batch=${pollCursor.batch}&after=${pollCursor.line}`);
+    if (!resp.ok) { console.error('pollLogs fetch failed:', resp.status); return; }
+    const data = await resp.json();
+    const lines = data.lines || [];
+
+    for (const entry of lines) {
+      processEntry(entry);
+      pollCursor.line++;
+    }
+
+    if (lines.length === 0) {
+      await fetchBatches();
+      const curIdx = allBatches.indexOf(pollCursor.batch);
+      if (curIdx >= 0 && curIdx < allBatches.length - 1) {
+        pollCursor.batch = allBatches[curIdx + 1];
+        pollCursor.line = 0;
+      }
+    }
+  } catch(e) { console.error('pollLogs error:', e); }
+
+  if (layoutDirty) {
+    layoutDirty = false;
+    await doLayout();
+  }
+}
+
+$overlay.addEventListener('click', () => { $overlay.style.display = 'none'; });
+
+const es = new EventSource(`${PANEL}/events`);
+es.addEventListener('connected', () => {
+  $cdot.classList.add('live');
+  isLive = true;
+  pollLogs();
+});
+es.addEventListener('update', () => { pollLogs(); });
+es.onerror = () => {
+  $cdot.classList.remove('live');
+  isLive = false;
+  $replayBar.style.display = 'flex';
+};
+
+setInterval(() => { pollLogs(); }, 3000);
+
+document.getElementById('btn-play').addEventListener('click', () => {
+  replayPlaying = !replayPlaying;
+  document.getElementById('btn-play').textContent = replayPlaying ? '⏸ PAUSE' : '▶ PLAY';
+  if (replayPlaying) replayStep();
+});
+
+document.getElementById('btn-next').addEventListener('click', () => {
+  if (replayIdx < allEntries.length) {
+    const d = allEntries[replayIdx];
+    highlightByRid(d.request_id || '', replayIdx);
+    const row = $traceBody.querySelector(`.tr[data-idx="${replayIdx}"]`);
+    if (row) row.scrollIntoView({block: 'nearest'});
+    replayIdx++;
+    $scrubber.value = replayIdx;
+  }
+});
+
+document.getElementById('btn-prev').addEventListener('click', () => {
+  if (replayIdx > 0) {
+    replayIdx--;
+    $scrubber.value = replayIdx;
+    const d = allEntries[replayIdx];
+    highlightByRid(d.request_id || '', replayIdx);
+    const row = $traceBody.querySelector(`.tr[data-idx="${replayIdx}"]`);
+    if (row) row.scrollIntoView({block: 'nearest'});
+  }
+});
+
+$scrubber.addEventListener('input', () => {
+  replayIdx = parseInt($scrubber.value);
+  if (replayIdx < allEntries.length) {
+    const d = allEntries[replayIdx];
+    highlightByRid(d.request_id || '', replayIdx);
+  }
+});
+
+document.getElementById('btn-faster').addEventListener('click', () => {
+  replaySpeed = Math.min(replaySpeed * 2, 16);
+  $speedLabel.textContent = replaySpeed + '×';
+});
+
+document.getElementById('btn-slower').addEventListener('click', () => {
+  replaySpeed = Math.max(replaySpeed / 2, 0.25);
+  $speedLabel.textContent = replaySpeed + '×';
+});
+
+function replayStep() {
+  if (!replayPlaying) return;
+  if (replayIdx < allEntries.length) {
+    const d = allEntries[replayIdx];
+    const from = d.from || '';
+    const to = d.to || '';
+    if (from && to && from !== to) flashEdge(edgeKey(from, to), !!d.error, eventLabel(d));
+    const row = $traceBody.querySelector(`.tr[data-idx="${replayIdx}"]`);
+    if (row) { row.classList.add('hl'); row.scrollIntoView({block: 'nearest'}); }
+    replayIdx++;
+    $scrubber.value = replayIdx;
+  }
+  if (replayIdx < allEntries.length) {
+    setTimeout(replayStep, 500 / replaySpeed);
+  } else {
+    replayPlaying = false;
+    document.getElementById('btn-play').textContent = '▶ PLAY';
+  }
+}
+
+new ResizeObserver(() => { if (ics.size > 0) doLayout(); }).observe($canvas);
+
+</script>
+</body>
+</html>
