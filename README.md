@@ -440,3 +440,74 @@ If the browser tab is backgrounded or throttled, annotation rendering can exceed
 
 Only one brain process runs at a time. The panel server supports multiple agents
 conceptually (routing by agent name) but the launch mechanism starts one subprocess.
+
+```
+## Claude Opus 4.6 Continuation Prompt
+
+You are helping build Franz Plumbing — an autonomous agent platform where VLMs
+physically control a Windows 11 PC by looking at screenshots and moving the mouse.
+Intelligence lives in VLM calls. Everything else is dumb plumbing.
+
+## Architecture (5 files, 2944 lines total)
+
+panel.py (777 lines) — HTTP server on :1236, sole JSONL logger, subprocess launcher.
+Routes POST /route to handlers: win32_capture, annotate, vlm, win32_device.
+SSE endpoint /events notifies browser. Browser-ready gate blocks brain launch
+until SSE connects. Replay mode: --replay <run_dir>.
+
+panel.html (925 lines) — PCB-style dashboard + annotation renderer. ELK.js layout,
+GSAP wire animations, replay controls. OffscreenCanvas renders overlays via drawPoly()
+and POSTs annotated PNG back to panel. Single-point overlays render as centered text
+with dark background pill (labels, warning text).
+
+win32.py (854 lines) — Windows-only subprocess. Screen capture (BGRA→PNG), mouse
+(click/drag/double_click/right_click/scroll), keyboard (type_text/press_key/hotkey),
+cursor_pos, select_region. All positions in NORM 1000×1000 coordinate space.
+
+brain_chess_players.py (208 lines) — Chess brain. Two-VLM pipeline:
+  1. Chess VLM sees annotated screenshot, outputs "move e2 e4"
+  2. Parser VLM converts to drag('e2', 'e4')
+  3. exec() runs parser output in sandbox: {"__builtins__": {}, "drag": drag}
+  4. drag() closure converts squares to NORM coords, calls bu.device()
+  try/except around exec() — bad parser output fails the round, not the process.
+
+brain_util.py (180 lines) — Brain SDK. route(), capture(), annotate(), vlm_text(),
+device(), overlay(), make_vlm_request(). HTTP client to panel on :1236.
+NORM=1000, VLM on localhost:1235 (OpenAI-compatible).
+
+## Key Design Decisions
+
+- exec() code generation, NOT regex parsing. Parser VLM outputs executable Python.
+  29/29 success rate vs 1/9 with old regex approach.
+- Chess agent says "move FROM TO" so parser receives a natural language request,
+  not a bare token. The word "move" is the bridge that prevents parroting.
+- Annotation overlays: 8×8 green grid (stroke_width=4), red arrow for last move
+  (stroke_width=3), square labels at endpoints, warning text at top center.
+- drawPoly() handles single-point overlays (pts.length >= 1) for labels/text.
+  Multi-point overlays (pts.length >= 2) draw lines/polygons.
+- No safety checks, no fallbacks. exec() the parser output directly.
+- Annotations render in browser OffscreenCanvas, round-trip through panel via
+  annotate_request.json → SSE notify → browser renders → POST /result.
+- Browser-ready gate: brain launch blocked until SSE connects (30s timeout).
+- All coordinates NORM 1000×1000. win32.py converts to screen pixels.
+
+## Prompts (in brain_chess_players.py)
+
+AGENT_SYSTEM: Chess engine playing White. Red arrow marks last move. Reply "move FROM TO".
+AGENT_USER: Dynamic — includes last_move context, urgency language.
+PARSER_SYSTEM: Python programmer with one function drag('FROM','TO'). Convert user's
+  move request into a single drag() call.
+PARSER_USER: Just {raw_text} — passthrough of chess agent reply.
+
+## TaskConfig defaults
+grid_size=8, grid_color=rgba(0,255,200,0.95), grid_stroke_width=4,
+arrow_color=rgba(255,60,60,0.9), arrow_stroke_width=3,
+agent_max_tokens=200, parser_max_tokens=30, post_action_delay=5.0
+
+## Rules
+- Only modify brain_chess_players.py unless explicitly told otherwise
+- No tests unless explicitly requested
+- No safety checks or fallbacks — dumb plumbing philosophy
+- System prompts are static identity/rules only; dynamic context goes in user message
+- Minimal code only — no verbose implementations
+```
